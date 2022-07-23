@@ -5,6 +5,7 @@
 :- use_module(library(occurs)).
 :- use_module(library(terms)).
 :- use_module(library(clpfd)).
+:- use_module(library(occurs)).
 
 :- op(800, yfx, and).
 :- op(700, yfx, or).
@@ -196,13 +197,21 @@ reducible(true or _).
 reduction_step(not(Phi) and Phi, false) :- !.
 reduction_step(Phi and not(Phi), false) :- !.
 reducible(Phi and not(Phi)).
-reducible(not(Phi), Phi).
+reducible(not(Phi) and Phi).
+
+reduction_step(Phi and Phi, Phi) :- !.
+reduction_step(Phi or Phi, Phi) :- !.
+reducible(Phi and Phi).
+reducible(Phi or Phi).
 
 reduction_step(Phi and Psi,Phi_r and Psi) :-
+    Phi \= Psi,
     reduction_step(Phi,Phi_r).
 reduction_step(Phi and Psi,Phi and Psi_r) :-
+    Phi \= Psi,
     reduction_step(Psi,Psi_r).
-reducible(Phi and Psi) :- reducible(Phi); reducible(Psi).
+reducible(Phi and Psi) :- 
+    reducible(Phi); reducible(Psi).
 
 reduction_step(Phi or exists([_],false), Phi).
 reduction_step(exists([_],false) or Phi, Phi).
@@ -224,10 +233,16 @@ reduction_step(forall([_],true) and Phi, Phi).
 reduction_step(_ or forall([_],true), true).
 reduction_step(forall([_],true) or _ , true).
 
-reduction_step(Phi or Psi,Phi_r or Psi) :-
-    reduction_step(Phi,Phi_r).
-reduction_step(Phi or Psi,Phi or Psi_r) :-
-    reduction_step(Psi,Psi_r).
+reduction_step(not(Phi) or Phi, Phi) :- !.
+reduction_step(Phi or not(Phi), Phi) :- !.
+reducible(Phi or not(Phi)).
+reducible(not(Phi) or Phi).
+
+reduction_step(Phi or Psi,Phi_r or Psi_r) :-
+    reduction_step(Phi,Phi_r),
+    reduction_step(Psi, Psi_r).
+/*reduction_step(Phi or Psi,Phi or Psi_r) :-
+    reduction_step(Psi,Psi_r).*/
 
 
 reducible(Phi or Psi) :- reducible(Phi); reducible(Psi).
@@ -250,18 +265,10 @@ reducible(exists(_,_,_) and _).
 reducible(forall(_,_,_) or _).
 reducible(forall(_,_,_) and _).
 
-reduction_step(Phi and Phi, Phi).
-reduction_step(Phi or Phi, Phi).
-reducible(Phi and Phi).
-reducible(Phi or Phi).
 
 reduction_step(not(not(X)), X).
 reducible(not(not(_))).
 
-/*reduction_step(not(Phi) and Phi,false).
-reducible(not(Phi) and Phi).
-reduction_step(Phi and not(Phi),false).
-reducible(Phi and not(Phi)).*/
 
 reduces_to(Phi,Phi).
 reduces_to(Phi,Psi) :-
@@ -308,6 +315,22 @@ substitute_clause(Vars,Terms,Head-Body,Newhead-Newbody) :-
     replace_listwise(Vars,Terms,Headvars,Newheadvars),
     Newhead = P-Newheadvars,
     maplist(substitute_literal(Vars,Terms),Body, Newbody).
+
+substitute_heads_body(Vars,Terms,Head-Body,Newhead-NewBody) :-
+    Head = P-Vars,
+    Newhead = P-Terms,
+    variables_in_body(Body,Bodyvars),
+    intersection(Vars,Bodyvars,Intersec),
+    sort(Intersec, SortedIntersec),
+    getIndexOfDupl1(SortedIntersec, Vars, Inds),
+    maplist(removetail, Inds, FirstInds),
+    flatten(FirstInds, FlatInds),
+    sort(FlatInds,SortedFlatInds),
+    getElemWithGivenIndex(Terms, SortedFlatInds, RelvVars),
+    replace_rec(Body,SortedIntersec,RelvVars, ReplBody),
+    sort(Vars,SortedVars),
+    create_util_pred_same(SortedVars, Terms, SamePreds),
+    append(ReplBody,SamePreds, NewBody).
 
 
 /* Some predicates to deal with variables in formulas */
@@ -433,7 +456,6 @@ checkPredLiteral(HeadPred, not(P-_)) :-
    in Body are substituted with index of the headpredicate*/
 do_substitution(_, [], _, []).
 do_substitution(Clauses, [FirstPred|Rest], SubVars, FinalNewClauses) :-
-    %exclude(is_clause_with_const, Clauses, RelvClauses),
     filterClauseWithPred(Clauses, FirstPred, AllRelvClauses),
     getAllHeads(AllRelvClauses, Heads),
     same(Heads),
@@ -446,6 +468,7 @@ do_substitution(Clauses, [FirstPred|Rest], SubVars, FinalNewClauses) :-
     \+same(Heads),
     getReplacer(Replacer, AllRelvClauses),
     variables_in_literal(Replacer, ReplacerVars),
+    unique(ReplacerVars),
     maplist(variables_free_in_body, AllRelvClauses, FreeVars),
     length(FreeVars, LenFreeVars),
     %
@@ -460,6 +483,40 @@ do_substitution(Clauses, [FirstPred|Rest], SubVars, FinalNewClauses) :-
     length(OldHeadVars, LenOldHeadVars),
     copy_list([ReplacerVars], LenOldHeadVars, NewHeadVars),
     maplist(substitute_clause, OldHeadVars, NewHeadVars, SubstBodyClauseVars, NewClauses),
+    append(NewClauses, Output, FinalNewClauses),
+    do_substitution(Clauses, Rest, SubVars, Output).
+do_substitution(Clauses, [FirstPred|Rest], SubVars, FinalNewClauses) :-
+    filterClauseWithPred(Clauses, FirstPred, AllRelvClauses),
+    getAllHeads(AllRelvClauses, Heads),
+    \+same(Heads),
+    getReplacer(Replacer, AllRelvClauses),
+    variables_in_literal(Replacer, ReplacerVars),
+    %%%%%%%%%%
+    \+unique(ReplacerVars),
+    sort(ReplacerVars, SortedReplacerVars),
+    getIndexOfDupl(SortedReplacerVars, ReplacerVars, IndList),
+    get_dupl_replacers(SortedReplacerVars, IndList, DuplRepl),
+    maplist(removehead, IndList, RestIndList),
+    maplist(removehead, DuplRepl, RestDuplRepl),
+    repl_listwise_rec(ReplacerVars, RestIndList, RestDuplRepl, NewReplVars),
+    %flatten(DuplRepl, FlatDuplRepl),
+    %replace_rec(ReplacerVars,ReplacerVars, FlatDuplRepl, NewReplVars),
+    maplist(variables_free_in_body, AllRelvClauses, FreeVars),
+    length(FreeVars, LenFreeVars),
+    %
+    flatten1(SubVars, FlattendSubVars),
+    length(FlattendSubVars, LenFlattendSubVars),
+    copy_list([FirstPred], LenFlattendSubVars, EnoughPredIndices),
+    maplist(atom_concat, FlattendSubVars, EnoughPredIndices, NewSubVars),
+    %
+    copy_list([NewSubVars], LenFreeVars, EnoughSubVars),
+    maplist(substitute_clause, FreeVars, EnoughSubVars, AllRelvClauses, SubstBodyClauseVars),
+    maplist(variables_in_literal, Heads, OldHeadVars),
+    length(OldHeadVars, LenOldHeadVars),
+    copy_list([NewReplVars], LenOldHeadVars, NewHeadVars),
+    %maplist(substitute_clause, OldHeadVars, NewHeadVars, SubstBodyClauseVars, NewClauses),
+    maplist(substitute_heads_body, OldHeadVars,NewHeadVars, SubstBodyClauseVars, NewClauses),
+    %append(NewClauses,SamePreds, InterResult),
     append(NewClauses, Output, FinalNewClauses),
     do_substitution(Clauses, Rest, SubVars, Output).
 
@@ -1250,16 +1307,12 @@ reduced_quant_elim(Term, ReducedTerm) :-
     
 /* Convert the result of the isfr back to a logic program */
 convert_to_lp(Pred,Freevars,true,[Clause]) :-
-    flatten(Freevars, FlatFreevars),
-    include(sub_atom1(Pred),FlatFreevars,PredFreevars),
-    Clause = Pred-PredFreevars-[].
+    Clause = Pred-Freevars-[].
 convert_to_lp(_,_,false,[]).
 convert_to_lp(Pred,Freevars,Formula, LP) :-
     Formula \= true,
     Formula \= false,
-    flatten(Freevars, FlatFreevars),
-    include(sub_atom1(Pred),FlatFreevars,PredFreevars),
-    Head = Pred-PredFreevars,
+    Head = Pred-Freevars,
     split_term_at_or(Formula, SplittedTerm),
     flatten(SplittedTerm, FlatSplittedTerm),
     maplist(split_term, FlatSplittedTerm, SplitConjs),
@@ -1301,12 +1354,6 @@ terminate_isfr(TransfTerm) :-
 	maplist(split_term, FlatSplitTerm, SplitConjs),
 	maplist(flatten, SplitConjs, FlatSplitConjs),
 	maplist(notsat, FlatSplitConjs),!.
-
-old_stratification([P,Q,R]) :-
-    [P,Q,R] ins 1..3,
-    Q #< P,
-    R #< P,
-    R #=< P.
 
 stratify(Program,Predicates,Strata) :-
     length(Strata,N),
@@ -1350,12 +1397,7 @@ getElemWithGivenIndex(List,[FirstInd|RestInd],Sublist) :-
     append([Elem], Out, Sublist),
     getElemWithGivenIndex(List, RestInd,Out).
 
-findRelvStratumPred(_,[],[]).
-findRelvStratumPred(Clauses,[FirstPred|RestPred],RelvClauses) :-
-    include(checkPred1(FirstPred), Clauses, RelvClause),
-    append(RelvClause, Out, RelvClauses),
-   	findRelvStratumPred(Clauses, RestPred, Out).
-
+/* Computes the lfp-formula for a a predicate (without any replacements) */
 compute_lfp(Program,Pred,Lfp,RelvFreeVars) :-
  datalog_to_formula(Program-Pred,[[a,b,c]], slfp(Preds, Slfp,FreeVars)),
  nth1(Index, Preds, Pred),
@@ -1363,6 +1405,7 @@ compute_lfp(Program,Pred,Lfp,RelvFreeVars) :-
  nth1(Index, Slfp, RelvForm),
  new_lfp(Pred, [Pred],[RelvForm], Lfp).
 
+/* Helper predicates for computing replacer predicates*/
 compute_replacer([], _, []).
 compute_replacer([FirstSub|RestSub], Repl, ReplList) :-
     \+sub_term(not(_), FirstSub),
@@ -1373,6 +1416,7 @@ compute_replacer([FirstSub|RestSub], Repl, ReplList) :-
     append([not(Repl)], Out, ReplList),
     compute_replacer(RestSub, Repl, Out).
 
+/* Computes strata for logic programs with negation and labels each predicate with a number */
 compute_strata(Program, Strata,SortedAllPreds) :-
     intensionals(Program, HeadPreds),
 	bodyPreds(Program, BodyPreds),
@@ -1381,6 +1425,7 @@ compute_strata(Program, Strata,SortedAllPreds) :-
     once(stratify(Program,SortedAllPreds,Strata)),
 	once(labeling([],Strata)).
 
+/* Get the right execution order for computing the lfp-formulas according to the strata */
 compute_order_preds([],[],[]).
 compute_order_preds(Strata, Preds, AscOrderedPreds) :-
     min_list(Strata, Min),
@@ -1391,26 +1436,7 @@ compute_order_preds(Strata, Preds, AscOrderedPreds) :-
     subtract(Strata, [Min], RestStrata),
     compute_order_preds(RestStrata, RestPreds, Out).
 
-compute_for_negation(Program, Pred,FinalLfp) :-
-    compute_strata(Program, Strata, Preds),
-    compute_order_preds(Strata, Preds, AscOrdPreds),
-    compute_rec_lfp(Program, AscOrdPreds, Lfps),
-    intensionals(Program, Intensionals),
-    intersection(AscOrdPreds, Intensionals, IntersecPreds),
-    do_replacement1(IntersecPreds,IntersecPreds, Lfps, FinalLfps),
-    nth1(Index, IntersecPreds,Pred),
-    nth1(Index,FinalLfps, FinalLfp).
-
-compute_for_pos(Program, Pred,FinalLfp) :-
-    datalog_to_formula(Program-Pred,[[a,b,c]], slfp(Preds,_,_)),
-    reverse(Preds, RevPreds),
-	compute_rec_lfp(Program, RevPreds, Lfps),
-    intensionals(Program, Intensionals),
-    intersection(RevPreds, Intensionals, IntersecPreds),
-    do_replacement1(IntersecPreds,IntersecPreds, Lfps, FinalLfps),
-    nth1(Index, IntersecPreds,Pred),
-    nth1(Index,FinalLfps, FinalLfp).
-
+/* Predicate which executes the replacement of predicates in a lfp-formula */
 do_replacement1([LastPred],Preds, Lfps, FinalLfps) :-
     do_replacement(LastPred,Preds,Lfps,FinalLfp),
     nth1(Index, Preds,LastPred),
@@ -1428,7 +1454,8 @@ do_replacement1([FirstPred|RestPred],Preds, Lfps, EndResultLfps) :-
     compute_replacer(RelvLiterals, CurrLfp, Replacers),
     maplist(variables_in_literal, RelvLiterals, RelvVars),
     maplist(variables_in_literal, Replacers, ReplVars),
-    maplist(substitute_literal, ReplVars, RelvVars, Replacers, NewReplacers),
+    maplist(reduced_form, Replacers, RedReplacers),
+    maplist(substitute_literal, ReplVars, RelvVars, RedReplacers, NewReplacers),
     replace_rec(NextLfp, RelvLiterals, NewReplacers, ReplForm),
     select(NextLfp, Lfps, ReplForm, NewLfps),
     do_replacement1(RestPred,Preds,NewLfps, EndResultLfps).
@@ -1442,6 +1469,7 @@ do_replacement(Pred,AscOrdPreds, Lfps, FinalLfp) :-
     subtract(AscOrdPreds, [Pred], RemPreds),
     look_for_repl_literals(RemPreds, AscOrdPreds,Lfps, SortedLiterals, RelvLfp, FinalLfp).
 
+/* Looks in a lfp-formula if there are predicates which can be replaced and computes the replacers */
 look_for_repl_literals([], _,_, _, RelvForm,RelvForm).
 look_for_repl_literals([FirstRemPred|RestRemPred], Preds,Lfps, SortedLiterals, RelvForm, NewForm) :-
     include(checkPredLiteral(FirstRemPred), SortedLiterals, RelvLiterals),
@@ -1454,7 +1482,7 @@ look_for_repl_literals([FirstRemPred|RestRemPred], Preds,Lfps, SortedLiterals, R
     replace_rec(RelvForm, RelvLiterals, NewReplacers, ReplForm),
     look_for_repl_literals(RestRemPred, Preds,Lfps, SortedLiterals, ReplForm, NewForm).
 
-%Immer in das jeweils höhere einstzen
+/* Computes recursively all lfp-formulas of a logic program */
 compute_rec_lfp(_,[],[]).
 compute_rec_lfp(Program, [FirstPred,SecPred|RestPred],AllLfps) :-
     intensionals(Program, Int),
@@ -1467,9 +1495,142 @@ compute_rec_lfp(Program, [FirstPred|RestPred],AllLfps) :-
     append([FirstLfp], Out, AllLfps),
     compute_rec_lfp(Program, RestPred, Out).
 
+/* Computes the Lfp-formula of a logic program which contains negative predicates */
+compute_for_negation(Program, Pred,SubVars,RelvFreeVars,FinalLfp) :-
+    datalog_to_formula(Program-Pred,SubVars,slfp(Preds,_,FreeVars)),
+    compute_strata(Program, Strata, OrderPreds),
+    compute_order_preds(Strata, OrderPreds, AscOrdPreds),
+    compute_rec_lfp(Program, AscOrdPreds, Lfps),
+    intensionals(Program, Intensionals),
+    intersection(AscOrdPreds, Intensionals, IntersecPreds),
+    do_replacement1(IntersecPreds,IntersecPreds, Lfps, FinalLfps),
+    nth1(Index, IntersecPreds,Pred),
+    nth1(Index,FinalLfps, FinalLfp),
+    nth1(Index1, Preds, Pred),
+    nth1(Index1, FreeVars, RelvFreeVars).
+
+/* Computes the Lfp-formula of a logic program with only positive predicates */
+compute_for_pos(Program, Pred,SubVars,RelvFreeVars,FinalLfp) :-
+    datalog_to_formula(Program-Pred,SubVars, slfp(Preds,_,FreeVars)),
+    reverse(Preds, RevPreds),
+	compute_rec_lfp(Program, RevPreds, Lfps),
+    intensionals(Program, Intensionals),
+    intersection(RevPreds, Intensionals, IntersecPreds),
+    do_replacement1(IntersecPreds,IntersecPreds, Lfps, FinalLfps),
+    nth1(Index, IntersecPreds,Pred),
+    nth1(Index,FinalLfps, FinalLfp),
+   	nth1(Index1, Preds, Pred),
+    nth1(Index1, FreeVars, RelvFreeVars).
+
+/* A logic program is asymptotically transformed into a det. logic program */
+compute_lp_form(Program, Pred, SubVars,DetLp) :-
+    contains_term(not(_), Program),
+    compute_for_negation(Program, Pred,SubVars,Freevars, Lfp),
+    compute_alpha(Lfp, _, _,AlphaConstr),
+	replace_lfps(Lfp, AlphaConstr, AlphaForm),
+	get_iter_number(AlphaForm, Iter,InnerForm),
+	isfr1(Iter,0,InnerForm,[Pred],false,ReducedInnerForm),
+	convert_to_lp(Pred,Freevars, ReducedInnerForm, DetLp),!.
+compute_lp_form(Program, Pred,SubVars,DetLp) :-
+    \+contains_term(not(_), Program),
+    compute_for_pos(Program, Pred, SubVars,Freevars,Lfp),
+    compute_alpha(Lfp, _, _,AlphaConstr),
+	replace_lfps(Lfp, AlphaConstr, AlphaForm),
+	get_iter_number(AlphaForm, Iter,InnerForm),
+	isfr1(Iter,0,InnerForm,[Pred],false,ReducedInnerForm),
+	convert_to_lp(Pred,Freevars, ReducedInnerForm, DetLp),!.
+
 /* Checks if a list only contains the same elements */
 same([]).
 same([_]).
 same([X,X|T]) :- same([X|T]).
 
+unique([]).
+unique([_,[]]).
+unique([H|T]):-not(member(H,T)),unique(T).
 
+getIndexOfDupl([],_,[]).
+getIndexOfDupl([FirstDupl|RestDupl], Vars, Inds) :-
+    findall(Index,nth0(Index,Vars,FirstDupl),RelvInds),
+    append([RelvInds], Out, Inds),
+    getIndexOfDupl(RestDupl, Vars, Out).
+
+getIndexOfDupl1([],_,[]).
+getIndexOfDupl1([FirstDupl|RestDupl], Vars, Inds) :-
+    findall(Index,nth1(Index,Vars,FirstDupl),RelvInds),
+    append([RelvInds], Out, Inds),
+    getIndexOfDupl1(RestDupl, Vars, Out).
+
+duplicates([],[]).
+duplicates([X|Xs], [X|Ys]) :-
+    member(X, Xs),
+    delete(Xs, X, XsWithoutX),
+    duplicates(XsWithoutX, Ys).
+
+get_dupl_replacers([], [], []).
+get_dupl_replacers([FirstDupl|RestDupl], [FirstIndList|RestIndList], DuplRepl) :-
+    length(FirstIndList, Len),
+    copy_list([FirstDupl], Len, EnoughFirstDupl),
+    range(OrdLi, 1, Len),
+    maplist(atom_concat, EnoughFirstDupl,OrdLi, NewRepl),
+    append([NewRepl], Out, DuplRepl),
+    get_dupl_replacers(RestDupl, RestIndList, Out).
+
+
+range([],A,B):-
+    A > B.
+range([A|T],A,B):-
+    A =< B,
+    A1 is A + 1,
+    range(T,A1,B).
+    
+
+count_dupl_occurr([],_,[]).
+count_dupl_occurr([FirstDupl|RestDupl], Vars, Occurr) :-
+    occurrences_of_var(FirstDupl, Vars, Count),
+    append([Count], Out, Occurr),
+    count_dupl_occurr(RestDupl, Vars, Out).
+
+repl_listwise_rec(NewVars, [],[],
+                  NewVars).
+repl_listwise_rec(Vars, IndList,DuplReplList,
+                  NewVarsList) :-
+    flatten(IndList, FlatIndList),
+    flatten(DuplReplList, FlatDuplReplList),
+    list_nth0_item_repl_rec(Vars, FlatIndList, FlatDuplReplList, NewVarsList).
+
+list_nth0_item_repl_rec(NewVars,[],[],NewVars).
+list_nth0_item_repl_rec(Vars, [FirstInd|RestInd], [FirstDuplRepl|RestDuplRepl], NewVars) :-
+    list_nth0_item_replaced(Vars, FirstInd, FirstDuplRepl, ReplVars),
+    list_nth0_item_repl_rec(ReplVars, RestInd, RestDuplRepl, NewVars).
+                            
+list_nth0_item_replaced([_|Xs], 0, E, [E|Xs]).
+list_nth0_item_replaced([X|Xs], N, E, [X|Ys]) :-
+   N #> 0,
+   N #= N0+1,
+   list_nth0_item_replaced(Xs, N0, E, Ys).
+
+%%%%% Hier weiter machen, um same zu bilden
+create_util_pred_same([],_,[]).
+create_util_pred_same([FirstVar|RestVar], ReplVars, Preds) :-
+  include(sub_atom1(FirstVar), ReplVars, Atoms),
+  create_same_pred(Atoms, Sames),
+  append(Sames, Out, Preds),
+  create_util_pred_same(RestVar, ReplVars, Out).
+
+create_same_pred([], []).
+create_same_pred([First|Rest], Sames) :-
+    helper_create_pred(First,Rest, FirstSamePred),
+    append(FirstSamePred,Out, Sames),
+    create_same_pred(Rest,Out).
+
+helper_create_pred(_, [], []).
+helper_create_pred(Elem, [X|Xs], Preds) :-
+    Pred = same-[Elem,X],
+    append([Pred], Out, Preds),
+    helper_create_pred(Elem,Xs,Out).
+    
+
+removehead([_|Rest], Rest).
+removetail([], []).
+removetail([X|_], [X]).
