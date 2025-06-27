@@ -20,4 +20,4 @@ The initial version of AsymptoticPLP was developed by Bao Loi Quach during her M
 Still open. Maybe Artistic License 2.0 is reasonable, as it would allow for having a single license also for projects that incorporate code from Riguzzi's cplint suite?? Otherwise one could go for an MIT X11 license. 
 
 ## Project status
-In alpha development, intended for some form of public release (probably as part of the C-ProbLog project) in 2024.
+In alpha development, intended for some form of public release (possibly as part of the C-ProbLog project, or the PLP-BN tools) in 2025.
