@@ -1,13 +1,13 @@
-:- module(asymptoticplp,[
-                        compute_lp_form/3,
-                        compute_lp_form/4,
-                        compute_lfp_form/2,
-                        reduced_quant_elim/2,
-                        compute_lp_lfp/3,
-                        compute_lp_lfp/4,
-                        datalog_to_formula/2,
-                        datalog_to_formula/3
-                        ]).
+%:- module(asymptoticplp,[
+%                        compute_lp_form/3,
+%                        compute_lp_form/4,
+%                        compute_lfp_form/2,
+%                        reduced_quant_elim/2,
+%                        compute_lp_lfp/3,
+%                        compute_lp_lfp/4,
+%                        datalog_to_formula/2,
+%                        datalog_to_formula/3
+%                        ]).
 :- use_module(library(pairs)).
 :- use_module(library(lists)).
 :- use_module(library(ordsets)).
@@ -17,8 +17,8 @@
 :- use_module(library(clpfd)).
 :- use_module(library(occurs)).
 
-:- op(800, yfx, and).
-:- op(700, yfx, or).
+:- op(650, yfx, and).
+:- op(650, yfx, or).
 
 /* Predicates offered:
  * compute_lp_form/3
